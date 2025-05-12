@@ -63,18 +63,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"No matching tickers found for {text}")
 
 # === Webhook Setup ===
-async def post_init(application: Application):
-    await application.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-    application.job_queue.run_repeating(check_prices, interval=10, first=5)
-
 async def telegram_webhook_handler(request):
     data = await request.json()
-    update = Update.de_json(data, Application.current.bot)
-    await Application.current.process_update(update)
+    update = Update.de_json(data, app.bot)  # Use app.bot here to create the update object
+    await app.process_update(update)  # Directly use app to process the update
     return web.Response(text="ok")
 
 async def handle(request):
     return web.Response(text="Bot is running.")
+
+async def post_init(application: Application):
+    # Set webhook after initializing the application
+    await application.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+    application.job_queue.run_repeating(check_prices, interval=10, first=5)
 
 def start_web_server(app: Application):
     aio_app = web.Application()
@@ -84,15 +85,14 @@ def start_web_server(app: Application):
     web.run_app(aio_app, port=port)
 
 async def main():
+    global app
     app = Application.builder().token(TELEGRAM_TOKEN).build()
+
     # Register handlers for start command and text messages
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     # Initialize the application (must be done before setting webhook)
-    Application.current = app  # Store globally for webhook handler
-
-    # Set up webhook after initialization
     await post_init(app)
 
     # Start webhook and server
