@@ -11,9 +11,9 @@ import nest_asyncio
 from aiohttp import web
 import os
 
-# === YOUR BOT TOKEN AND WEBHOOK URL FROM ENVIRONMENT VARIABLES ===
+# === YOUR BOT TOKEN ===
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # e.g. https://your-service.onrender.com
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # Full HTTPS URL to your webhook endpoint
 
 # === ENABLE LOGGING ===
 logging.basicConfig(level=logging.INFO)
@@ -41,84 +41,27 @@ coins = get_usdt_futures_symbols()
 
 # === HANDLERS ===
 
+# Handle /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Bot is active and ready. Send a ticker like BTC or ETH.")
+    await update.message.reply_text("Bot is active and ready! Please send a ticker like 'BTC' or 'ETH'.")
 
+# Handle user input (text) for ticker matching
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.upper()
-    matches = [symbol for symbol in coins if text in symbol]
+    text = update.message.text.upper().strip()
+    logger.info(f"Received ticker input: {text}")  # Log the input
 
-    if not matches:
-        await update.message.reply_text("No matching tickers found.")
-        return
+    # Check if the user input matches any ticker in the available symbols
+    if text in coins:
+        await update.message.reply_text(f"Ticker found: {text} / USDT")
+    else:
+        logger.warning(f"No match found for ticker: {text}")  # Log if no match found
+        await update.message.reply_text(f"No matching tickers found for {text}")
 
-    keyboard = [[InlineKeyboardButton(symbol, callback_data=f"select|{symbol}")] for symbol in matches]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Select a symbol:", reply_markup=reply_markup)
-
-async def select_symbol(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    symbol = query.data.split("|")[1]
-
-    coins[symbol]['chat_id'] = query.message.chat.id
-    context.user_data['symbol'] = symbol
-
-    keyboard = [
-        [InlineKeyboardButton("Set Min Price", callback_data=f"min|{symbol}")],
-        [InlineKeyboardButton("Set Max Price", callback_data=f"max|{symbol}")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text=f"{symbol} selected. Choose what to set:", reply_markup=reply_markup)
-
-async def price_type_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    price_type, symbol = query.data.split("|")
-    context.user_data['price_type'] = price_type
-    await query.edit_message_text(f"Send the {price_type} price for {symbol}.")
-
-async def toggle_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    symbol = query.data.split("|")[1]
-    coins[symbol]['active'] = not coins[symbol]['active']
-    state = "activated" if coins[symbol]['active'] else "deactivated"
-    await query.edit_message_text(f"Alerts for {symbol} are now {state}.")
-
+# Function to display alerts (for testing, adjust as needed)
 async def list_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    active_alerts = [s for s in coins if coins[s]['active']]
-    if not active_alerts:
-        await update.message.reply_text("No active alerts.")
-        return
-    msg = "Active alerts:\n" + "\n".join(active_alerts)
-    await update.message.reply_text(msg)
+    await update.message.reply_text("Here are your alerts: ...")
 
-async def get_current_price(symbol):
-    url = f"https://fapi.binance.com/fapi/v1/ticker/price?symbol={symbol}"
-    response = requests.get(url)
-    return float(response.json()["price"]) if response.status_code == 200 else None
-
-async def check_prices(context: ContextTypes.DEFAULT_TYPE):
-    for symbol, data in coins.items():
-        if not data['active'] or not data['chat_id']:
-            continue
-
-        price = await get_current_price(symbol)
-        if price is None:
-            continue
-
-        alert_msg = None
-        if data['min_price'] and price < float(data['min_price']):
-            alert_msg = f"🔻 {symbol} dropped below {data['min_price']}: now {price}"
-        elif data['max_price'] and price > float(data['max_price']):
-            alert_msg = f"🚀 {symbol} rose above {data['max_price']}: now {price}"
-
-        if alert_msg:
-            await context.bot.send_message(chat_id=data['chat_id'], text=alert_msg)
-            coins[symbol]['active'] = False  # Disable alert after trigger
-
-# === WEBHOOK INIT ===
+# Setup and start the bot with webhook
 async def post_init(application: Application):
     await application.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     application.job_queue.run_repeating(check_prices, interval=10, first=5)
@@ -139,19 +82,14 @@ def start_web_server(app: Application):
     port = int(os.environ.get("PORT", 10000))
     web.run_app(aio_app, port=port)
 
-# === MAIN ===
 async def main():
     app = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("alerts", list_alerts))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(CallbackQueryHandler(toggle_alert, pattern="^toggle\\|"))
-    app.add_handler(CallbackQueryHandler(select_symbol, pattern="^select\\|"))
-    app.add_handler(CallbackQueryHandler(price_type_selection, pattern="^(min|max)\\|"))
 
-    await app.initialize()  # ✅ FIXED: Needed for webhook processing
-    Application.current = app
+    # Do not call app.run_polling() here
+    Application.current = app  # Store globally for webhook handler
     start_web_server(app)
 
 if __name__ == "__main__":
