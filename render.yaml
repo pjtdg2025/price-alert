@@ -5,5 +5,5 @@ services:
     repo: https://github.com/pjtdg2025/price-alert 
     branch: main
     buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
+    startCommand: python main.py
 plan: free
