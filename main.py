@@ -8,9 +8,11 @@ from telegram.ext import (
 )
 import asyncio
 import nest_asyncio
+from aiohttp import web
+import os
 
 # === YOUR BOT TOKEN ===
-TELEGRAM_TOKEN = '7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0'
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
 # === ENABLE LOGGING ===
 logging.basicConfig(level=logging.INFO)
@@ -195,15 +197,20 @@ async def main():
     app.add_handler(CallbackQueryHandler(toggle_alert, pattern="^toggle\\|"))
     app.add_handler(CallbackQueryHandler(select_symbol, pattern="^select\\|"))
     app.add_handler(CallbackQueryHandler(price_type_selection, pattern="^(min|max)\\|"))
-    
-    # Error handler
-    def error_handler(update, context):
-        logger.error(f"Error occurred: {context.error}")
+    await app.run_polling()
 
-    app.add_error_handler(error_handler)
+# === Dummy web server for Render free plan ===
+async def handle(request):
+    return web.Response(text="Bot is running.")
 
-    await app.run_polling(drop_pending_updates=True)
+def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle)
+    port = int(os.environ.get("PORT", 10000))
+    web.run_app(app, port=port)
 
 if __name__ == "__main__":
     nest_asyncio.apply()
-    asyncio.get_event_loop().run_until_complete(main())
+    loop = asyncio.get_event_loop()
+    loop.create_task(main())
+    start_web_server()
