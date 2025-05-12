@@ -83,7 +83,11 @@ def start_web_server(app: Application):
     web.run_app(aio_app, port=port)
 
 async def main():
-    app = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+
+    # Initialize the application
+    await app.initialize()  # Ensure the application is initialized properly
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("alerts", list_alerts))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
