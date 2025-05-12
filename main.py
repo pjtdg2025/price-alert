@@ -7,6 +7,7 @@ from telegram.ext import (
     ContextTypes, filters
 )
 import asyncio
+import nest_asyncio
 
 # === YOUR BOT TOKEN ===
 TELEGRAM_TOKEN = '7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0'
@@ -197,4 +198,5 @@ async def main():
     await app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    nest_asyncio.apply()
+    asyncio.get_event_loop().run_until_complete(main())
