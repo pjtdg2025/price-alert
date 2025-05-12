@@ -195,7 +195,14 @@ async def main():
     app.add_handler(CallbackQueryHandler(toggle_alert, pattern="^toggle\\|"))
     app.add_handler(CallbackQueryHandler(select_symbol, pattern="^select\\|"))
     app.add_handler(CallbackQueryHandler(price_type_selection, pattern="^(min|max)\\|"))
-    await app.run_polling()
+    
+    # Error handler
+    def error_handler(update, context):
+        logger.error(f"Error occurred: {context.error}")
+
+    app.add_error_handler(error_handler)
+
+    await app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     nest_asyncio.apply()
