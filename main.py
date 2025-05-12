@@ -39,29 +39,30 @@ def get_usdt_futures_symbols():
 
 coins = get_usdt_futures_symbols()
 
-# === HANDLERS ===
-
-# Handle /start command
+# === Handlers ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Bot is active and ready! Please send a ticker like 'BTC' or 'ETH'.")
+    welcome_message = (
+        "Bot is active and ready. Send a ticker like BTC to get started."
+    )
+    await update.message.reply_text(welcome_message)
 
-# Handle user input (text) for ticker matching
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.upper().strip()
     logger.info(f"Received ticker input: {text}")  # Log the input
 
-    # Check if the user input matches any ticker in the available symbols
-    if text in coins:
-        await update.message.reply_text(f"Ticker found: {text} / USDT")
+    # Check if the user input matches any ticker in the available symbols (case insensitive)
+    matched_tickers = [symbol for symbol in coins if text in symbol]
+    
+    if matched_tickers:
+        response = "Found matching tickers:\n"
+        for ticker in matched_tickers:
+            response += f"- {ticker} / USDT\n"
+        await update.message.reply_text(response)
     else:
         logger.warning(f"No match found for ticker: {text}")  # Log if no match found
         await update.message.reply_text(f"No matching tickers found for {text}")
 
-# Function to display alerts (for testing, adjust as needed)
-async def list_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Here are your alerts: ...")
-
-# Setup and start the bot with webhook
+# === Webhook Setup ===
 async def post_init(application: Application):
     await application.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     application.job_queue.run_repeating(check_prices, interval=10, first=5)
@@ -83,16 +84,11 @@ def start_web_server(app: Application):
     web.run_app(aio_app, port=port)
 
 async def main():
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
-
-    # Initialize the application
-    await app.initialize()  # Ensure the application is initialized properly
-
+    app = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("alerts", list_alerts))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
-    # Do not call app.run_polling() here
+    # Add any other handlers you need (e.g., for alerts)
+    # Start webhook and server
     Application.current = app  # Store globally for webhook handler
     start_web_server(app)
 
