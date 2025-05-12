@@ -1,4 +1,3 @@
-
 import logging
 import requests
 from datetime import datetime
@@ -59,9 +58,6 @@ def get_symbol_message(symbol):
     min_display = data['min_price'] if data['min_price'] is not None else "Not set"
     max_display = data['max_price'] if data['max_price'] is not None else "Not set"
     text = f"{symbol}\nMin Price: {min_display}\nMax Price: {max_display}\nStatus: {'ON' if data['active'] else 'OFF'}"
-Min Price: {min_display}
-Max Price: {max_display}
-Status: {'ON' if data['active'] else 'OFF'}"
     return text, markup
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -184,8 +180,7 @@ async def list_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE):
             max_display = data['max_price'] if data['max_price'] is not None else "-"
             alerts.append(f"{symbol}: Min={min_display}, Max={max_display}")
     if alerts:
-        await update.message.reply_text("📋 Active Alerts:
-" + "\n".join(alerts))
+        await update.message.reply_text("📋 Active Alerts:\n" + "\n".join(alerts))
     else:
         await update.message.reply_text("ℹ️ No active alerts.")
 
