@@ -84,12 +84,18 @@ def start_web_server(app: Application):
     web.run_app(aio_app, port=port)
 
 async def main():
-    app = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    # Register handlers for start command and text messages
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    # Add any other handlers you need (e.g., for alerts)
-    # Start webhook and server
+
+    # Initialize the application (must be done before setting webhook)
     Application.current = app  # Store globally for webhook handler
+
+    # Set up webhook after initialization
+    await post_init(app)
+
+    # Start webhook and server
     start_web_server(app)
 
 if __name__ == "__main__":
