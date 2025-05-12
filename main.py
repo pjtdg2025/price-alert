@@ -7,7 +7,6 @@ from telegram.ext import (
     ContextTypes, filters
 )
 import asyncio
-import nest_asyncio
 
 # === YOUR BOT TOKEN ===
 TELEGRAM_TOKEN = '7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0'
@@ -192,11 +191,10 @@ async def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("alerts", list_alerts))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(CallbackQueryHandler(toggle_alert, pattern="^toggle\|"))
-    app.add_handler(CallbackQueryHandler(select_symbol, pattern="^select\|"))
-    app.add_handler(CallbackQueryHandler(price_type_selection, pattern="^(min|max)\|"))
+    app.add_handler(CallbackQueryHandler(toggle_alert, pattern="^toggle\\|"))
+    app.add_handler(CallbackQueryHandler(select_symbol, pattern="^select\\|"))
+    app.add_handler(CallbackQueryHandler(price_type_selection, pattern="^(min|max)\\|"))
     await app.run_polling()
 
 if __name__ == "__main__":
-    nest_asyncio.apply()
     asyncio.run(main())
