@@ -58,7 +58,7 @@ def get_symbol_message(symbol):
     markup = InlineKeyboardMarkup(keyboard)
     min_display = data['min_price'] if data['min_price'] is not None else "Not set"
     max_display = data['max_price'] if data['max_price'] is not None else "Not set"
-    text = f"{symbol}
+    text = f"{symbol}\nMin Price: {min_display}\nMax Price: {max_display}\nStatus: {'ON' if data['active'] else 'OFF'}"
 Min Price: {min_display}
 Max Price: {max_display}
 Status: {'ON' if data['active'] else 'OFF'}"
