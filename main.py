@@ -1,25 +1,28 @@
 import logging
 import requests
-from datetime import datetime
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import (
-    Application, CommandHandler, CallbackQueryHandler, MessageHandler,
-    ContextTypes, filters
-)
+import os
 import asyncio
 import nest_asyncio
+from datetime import datetime
 from aiohttp import web
-import os
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 
-# === YOUR BOT TOKEN ===
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # Full HTTPS URL to your webhook endpoint
-
-# === ENABLE LOGGING ===
+# === Setup Logging ===
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# === LOAD ALL USDT PERPETUAL FUTURES FROM BINANCE ===
+# === Load Tokens from Environment Variables ===
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Example: https://your-app.onrender.com
+
+# === Load Futures Tickers from Binance ===
 def get_usdt_futures_symbols():
     url = 'https://fapi.binance.com/fapi/v1/exchangeInfo'
     response = requests.get(url)
@@ -28,75 +31,69 @@ def get_usdt_futures_symbols():
         data = response.json()
         for s in data['symbols']:
             if s['contractType'] == 'PERPETUAL' and s['quoteAsset'] == 'USDT':
-                futures[s['symbol']] = {
-                    'min_price': None,
-                    'max_price': None,
-                    'active': False,
-                    'chat_id': None,
-                    'last_price': None
-                }
+                futures[s['symbol']] = {}
     return futures
 
 coins = get_usdt_futures_symbols()
 
 # === Handlers ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    welcome_message = (
-        "Bot is active and ready. Send a ticker like BTC to get started."
-    )
-    await update.message.reply_text(welcome_message)
+    await update.message.reply_text("Bot is active and ready. Send a ticker like BTC or ETH.")
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.upper().strip()
-    logger.info(f"Received ticker input: {text}")  # Log the input
+    matched = [symbol for symbol in coins if text in symbol]
 
-    # Check if the user input matches any ticker in the available symbols (case insensitive)
-    matched_tickers = [symbol for symbol in coins if text in symbol]
-    
-    if matched_tickers:
-        response = "Found matching tickers:\n"
-        for ticker in matched_tickers:
-            response += f"- {ticker} / USDT\n"
-        await update.message.reply_text(response)
+    if matched:
+        response = "Found matching tickers:\n" + "\n".join(f"- {m}" for m in matched)
     else:
-        logger.warning(f"No match found for ticker: {text}")  # Log if no match found
-        await update.message.reply_text(f"No matching tickers found for {text}")
+        response = f"No matching tickers found for {text}"
 
-# === Webhook Setup ===
-async def telegram_webhook_handler(request):
-    data = await request.json()
-    update = Update.de_json(data, app.bot)  # Use app.bot here to create the update object
-    await app.process_update(update)  # Directly use app to process the update
-    return web.Response(text="ok")
+    await update.message.reply_text(response)
 
-async def handle(request):
+# === Webhook Handler ===
+async def make_webhook_handler(application: Application):
+    async def telegram_webhook_handler(request):
+        data = await request.json()
+        update = Update.de_json(data, application.bot)
+        await application.process_update(update)
+        return web.Response(text="ok")
+
+    return telegram_webhook_handler
+
+async def handle_root(request):
     return web.Response(text="Bot is running.")
 
-async def post_init(application: Application):
-    # Set webhook after initializing the application
-    await application.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-    application.job_queue.run_repeating(check_prices, interval=10, first=5)
-
-def start_web_server(app: Application):
-    aio_app = web.Application()
-    aio_app.router.add_post("/webhook", telegram_webhook_handler)
-    aio_app.router.add_get("/", handle)
-    port = int(os.environ.get("PORT", 10000))
-    web.run_app(aio_app, port=port)
-
+# === Main Application Setup ===
 async def main():
-    global app
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    # Build Telegram application
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    # Register handlers for start command and text messages
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    # Initialize the application (must be done before setting webhook)
-    await post_init(app)
+    # Set webhook
+    await application.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
 
-    # Start webhook and server
-    start_web_server(app)
+    # Create aiohttp app
+    aio_app = web.Application()
+    aio_app.router.add_get("/", handle_root)
+    aio_app.router.add_post("/webhook", await make_webhook_handler(application))
+
+    # Start aiohttp server
+    port = int(os.environ.get("PORT", 10000))
+    runner = web.AppRunner(aio_app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+    logger.info("Bot is live and webhook is set.")
+    # Run the Telegram polling loop (just to keep it alive)
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+    await application.updater.idle()
 
 if __name__ == "__main__":
     nest_asyncio.apply()
