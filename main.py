@@ -16,7 +16,6 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 PORT = int(os.getenv("PORT", 10000))
 
-# Store application instance
 telegram_app: Application = None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -26,7 +25,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = update.message.text.upper()
     possible_tickers = [f"{user_input}USDT", f"{user_input}BUSD"]
 
-    # Simulate matching tickers (replace with Binance logic if needed)
     matched = [t for t in possible_tickers if "USDT" in t]
 
     if matched:
@@ -72,6 +70,9 @@ async def main():
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     telegram_app.add_handler(CallbackQueryHandler(handle_callback))
 
+    # 🟢 Required initialization for webhook mode
+    await telegram_app.initialize()
+
     await set_webhook()
 
     app = web.Application()
@@ -83,6 +84,7 @@ async def main():
 
     logger.info("🚀 Bot is live and webhook server is running.")
 
+    # This keeps the application alive
     while True:
         await asyncio.sleep(3600)
 
