@@ -5,8 +5,8 @@ import httpx
 from aiohttp import web
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder, Application, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ContextTypes, filters
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ContextTypes, filters, Application
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -70,11 +70,10 @@ async def main():
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     telegram_app.add_handler(CallbackQueryHandler(handle_callback))
 
-    # 🟢 Required initialization for webhook mode
+    # 🟢 FIRST: Initialize bot (must happen before webhook receives updates)
     await telegram_app.initialize()
 
-    await set_webhook()
-
+    # 🟢 THEN: Start aiohttp webhook server
     app = web.Application()
     app.add_routes([web.post("/webhook", telegram_webhook_handler)])
     runner = web.AppRunner(app)
@@ -82,11 +81,15 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
 
+    # 🟢 AFTER webhook server is live, start application and set webhook
+    await telegram_app.start()
+    await set_webhook()
+
     logger.info("🚀 Bot is live and webhook server is running.")
 
-    # This keeps the application alive
-    while True:
-        await asyncio.sleep(3600)
+    # Keeps the app alive
+    await telegram_app.updater.start_polling()  # not used, but needed to keep alive
+    await telegram_app.updater.idle()
 
 if __name__ == "__main__":
     import nest_asyncio
