@@ -1,91 +1,56 @@
 import os
-import json
-import asyncio
 import logging
 from aiohttp import web
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
+    ApplicationBuilder, ContextTypes,
+    CommandHandler, MessageHandler, filters
 )
-import httpx
 
-# === Logging ===
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # e.g. https://your-service.onrender.com
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# === Load from environment ===
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # e.g. https://yourapp.onrender.com
+app = ApplicationBuilder().token(TOKEN).build()
 
-# === Create Application globally ===
-telegram_app = (
-    ApplicationBuilder()
-    .token(TOKEN)
-    .concurrent_updates(True)
-    .build()
-)
-
-# === Telegram Handlers ===
+# Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ Bot is live. Send a ticker like BTC or ETH.")
+    await update.message.reply_text("✅ Bot is live. Send a ticker.")
 
 async def handle_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip().upper()
-    if text in ["BTC", "ETH", "BNB", "SOL"]:
-        await update.message.reply_text(f"🔔 Alert set for {text}")
-    else:
-        await update.message.reply_text("❌ Ticker not recognized.")
+    ticker = update.message.text.strip().upper()
+    await update.message.reply_text(f"🔔 Alert set for {ticker}")
 
-# === Webhook Handler ===
-async def telegram_webhook_handler(request):
-    try:
-        data = await request.json()
-        update = Update.de_json(data, telegram_app.bot)
-        await telegram_app.process_update(update)
-    except Exception as e:
-        logger.error(f"Error in webhook handler: {e}")
-        return web.Response(status=500)
-    return web.Response(status=200)
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ticker))
 
-# === Setup aiohttp server ===
-async def run_webhook_server():
-    app = web.Application()
-    app.router.add_post("/webhook", telegram_webhook_handler)
-    runner = web.AppRunner(app)
+# Aiohttp webhook server
+async def handle_webhook(request):
+    data = await request.json()
+    update = Update.de_json(data, app.bot)
+    await app.process_update(update)
+    return web.Response()
+
+async def main():
+    await app.initialize()
+    app.bot.delete_webhook()
+    app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
+
+    # Start webhook server
+    aio_app = web.Application()
+    aio_app.router.add_post("/webhook", handle_webhook)
+    runner = web.AppRunner(aio_app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", 10000)
     await site.start()
-    logger.info("🌐 Webhook server running at /webhook")
 
-# === Main ===
-async def main():
-    # Add handlers
-    telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ticker))
-
-    # Initialize bot
-    await telegram_app.initialize()
-
-    # Start aiohttp webhook server
-    await run_webhook_server()
-
-    # Set webhook URL
-    async with httpx.AsyncClient() as client:
-        await client.post(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook")
-        await client.post(
-            f"https://api.telegram.org/bot{TOKEN}/setWebhook",
-            json={"url": f"{WEBHOOK_URL}/webhook"}
-        )
-
-    logger.info("✅ Webhook set. Bot is ready.")
-    await telegram_app.start()
-    await telegram_app.updater.start_polling()  # Optional: for scheduling or internal polling
-    await telegram_app.updater.stop()
-    await telegram_app.shutdown()
+    logger.info("🌐 Webhook is live.")
+    await app.start()
+    await app.updater.start_polling()  # Optional
+    await app.updater.idle()
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
