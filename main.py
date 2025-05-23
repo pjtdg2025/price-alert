@@ -1,126 +1,63 @@
 import os
-import asyncio
-import json
 import logging
 from aiohttp import web
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+    ApplicationBuilder, ContextTypes,
+    CommandHandler, MessageHandler, filters
 )
-import httpx
 
-# === Configuration ===
 TOKEN = "7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0"
-CHAT_ID = "7559598079"
-WEBHOOK_URL = "https://price-alert-roro.onrender.com/webhook"
-BINANCE_FUTURES_API = "https://fapi.binance.com/fapi/v1/ticker/price"
+WEBHOOK_URL = "https://price-alert-roro.onrender.com"  # Your Render service URL
 
-# === Logging ===
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# === In-memory storage ===
-alerts = {}  # Format: {symbol: target_price}
-
-# === Telegram Bot Setup ===
 app = ApplicationBuilder().token(TOKEN).build()
 
-# === Handlers ===
-user_states = {}
-
+# Telegram bot handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ Send me a Binance perpetual ticker like `BTCUSDT`.")
-    user_states[update.effective_chat.id] = {"stage": "awaiting_ticker"}
+    await update.message.reply_text("✅ Bot is live. Send me a ticker symbol.")
 
-async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_chat.id
-    message = update.message.text.strip().upper()
+async def handle_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ticker = update.message.text.strip().upper()
+    await update.message.reply_text(f"🔔 Alert set for {ticker}. Now please send me the target price.")
 
-    if user_id not in user_states:
-        await update.message.reply_text("Please send /start to begin.")
-        return
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ticker))
 
-    state = user_states[user_id]
-
-    if state["stage"] == "awaiting_ticker":
-        # Check if it's a valid Binance Futures ticker
-        async with httpx.AsyncClient() as client:
-            response = await client.get(BINANCE_FUTURES_API)
-            symbols = [item["symbol"] for item in response.json()]
-        
-        if message in symbols:
-            state["ticker"] = message
-            state["stage"] = "awaiting_price"
-            await update.message.reply_text(f"✅ Got {message}. Now send me the target price.")
-        else:
-            await update.message.reply_text("❌ Invalid ticker. Try again (e.g., BTCUSDT).")
-
-    elif state["stage"] == "awaiting_price":
-        try:
-            price = float(message)
-            ticker = state["ticker"]
-            alerts[ticker] = price
-            await update.message.reply_text(f"🔔 Alert set for {ticker} at price {price}")
-            del user_states[user_id]
-        except ValueError:
-            await update.message.reply_text("❌ Invalid price. Please send a number.")
-
-# === Background Price Monitor ===
-async def monitor_prices():
-    while True:
-        if alerts:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(BINANCE_FUTURES_API)
-                prices = {item["symbol"]: float(item["price"]) for item in response.json()}
-
-            for symbol, target in list(alerts.items()):
-                if symbol in prices:
-                    current_price = prices[symbol]
-                    if current_price >= target:
-                        await app.bot.send_message(
-                            chat_id=CHAT_ID,
-                            text=f"🚨 {symbol} has reached the target price of {target} (Current: {current_price})"
-                        )
-                        del alerts[symbol]
-        await asyncio.sleep(15)
-
-# === Webhook Receiver ===
-async def telegram_webhook(request):
+# aiohttp webhook handler
+async def handle_webhook(request):
     data = await request.json()
     update = Update.de_json(data, app.bot)
     await app.process_update(update)
-    return web.Response()
+    return web.Response(text="ok")
 
-# === Web Server and Bot Startup ===
 async def main():
-    # Add handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-
-    # Initialize
     await app.initialize()
-    async with httpx.AsyncClient() as client:
-        await client.post(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook")
-        await client.post(
-            f"https://api.telegram.org/bot{TOKEN}/setWebhook",
-            json={"url": WEBHOOK_URL}
-        )
 
-    # Start webhook server
+    # Properly delete previous webhook and set new webhook
+    await app.bot.delete_webhook()
+    await app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
+
+    # Start aiohttp server on Render-assigned port
     aio_app = web.Application()
-    aio_app.router.add_post("/webhook", telegram_webhook)
+    aio_app.router.add_post("/webhook", handle_webhook)
+
     runner = web.AppRunner(aio_app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 10000)
+
+    port = int(os.environ.get("PORT", 10000))  # Use Render's port or fallback 10000
+    site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    logger.info("🌐 Webhook running")
 
-    # Start price monitoring
-    asyncio.create_task(monitor_prices())
+    logger.info("🌐 Webhook running at %s on port %d", WEBHOOK_URL, port)
 
+    # Start the bot
     await app.start()
-    await app.updater.start_polling()
+    await app.updater.start_polling()  # Optional fallback, can remove if you want webhook-only
     await app.updater.idle()
 
 if __name__ == "__main__":
+    import asyncio
     asyncio.run(main())
