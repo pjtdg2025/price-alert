@@ -1,10 +1,12 @@
 services:
   - type: web
-    name: binance-alert-bot
+    name: price-alert-roro
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     envVars:
+      - key: TELEGRAM_TOKEN
+        value: 7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0
       - key: WEBHOOK_URL
-        value: https://price-alert-roro.onrender.com
+        value: https://price-alert-roro.onrender.com/webhook
