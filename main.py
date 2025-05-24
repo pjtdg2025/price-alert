@@ -17,8 +17,9 @@ user_alerts = {}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Static fallback list of popular Binance Futures tickers
+# STATIC ticker list - NO API call here
 async def fetch_binance_futures_tickers():
+    # Just return a static list to avoid blocked API call
     return {
         "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT",
         "SOLUSDT", "DOGEUSDT", "DOTUSDT", "LTCUSDT", "TRXUSDT",
@@ -87,6 +88,7 @@ async def root():
 async def main():
     global application
 
+    # Use static tickers - no live fetch!
     valid_tickers = await fetch_binance_futures_tickers()
 
     defaults = Defaults(parse_mode="HTML")
@@ -106,11 +108,9 @@ async def main():
     logger.info("🌐 Webhook running")
     await application.initialize()
     await application.start()
-    # Don't start polling when using webhook
+    # Do NOT start polling in webhook mode
     # await application.updater.start_polling()
     # await application.updater.idle()
 
 if __name__ == "__main__":
-    import uvicorn
-    # Run FastAPI server with uvicorn on specified port
     uvicorn.run(app, host="0.0.0.0", port=PORT)
