@@ -2,10 +2,9 @@ import logging
 import httpx
 import asyncio
 from telegram import Update
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler, filters, ContextTypes, Defaults
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from fastapi import FastAPI, Request
+from telegram.ext import Defaults
 import uvicorn
 
 BOT_TOKEN = "7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0"
@@ -19,17 +18,12 @@ user_alerts = {}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
-application = None  # This will be initialized in startup
-
-# ✅ Use Binance official endpoint
+# Static hardcoded Binance Futures tickers to avoid API geo-blocking issues
 async def fetch_binance_futures_tickers():
-    url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url)
-        r.raise_for_status()
-        data = r.json()
-        return {item["symbol"] for item in data["symbols"]}
+    return {
+        "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "SOLUSDT",
+        "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT"
+    }
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Send me the Binance Futures ticker (e.g., BTCUSDT)")
@@ -63,6 +57,7 @@ async def check_alerts(context: ContextTypes.DEFAULT_TYPE):
     try:
         async with httpx.AsyncClient() as client:
             r = await client.get("https://fapi.binance.com/fapi/v1/ticker/price")
+            r.raise_for_status()
             prices = {item["symbol"]: float(item["price"]) for item in r.json()}
 
         for user_id, alerts in user_alerts.items():
@@ -77,20 +72,22 @@ async def check_alerts(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error checking alerts: {e}")
 
+app = FastAPI()
+
 @app.post("/webhook")
 async def telegram_webhook(req: Request):
     data = await req.json()
-    update = Update.de_json(data, bot=app.state.application.bot)
-    await app.state.application.update_queue.put(update)
+    update = Update.de_json(data, application.bot)
+    await application.update_queue.put(update)
     return "ok"
 
 @app.get("/")
 async def root():
     return {"message": "Bot is running"}
 
-@app.on_event("startup")
-async def startup_event():
+async def main():
     global application
+
     valid_tickers = await fetch_binance_futures_tickers()
 
     defaults = Defaults(parse_mode="HTML")
@@ -104,13 +101,12 @@ async def startup_event():
     job_queue = application.job_queue
     job_queue.run_repeating(check_alerts, interval=60, first=10)
 
-    await application.initialize()
     await application.bot.delete_webhook()
     await application.bot.set_webhook(url=WEBHOOK_URL)
+
+    logger.info("🌐 Webhook running")
+    await application.initialize()
     await application.start()
 
-    app.state.application = application
-    logger.info("🌐 Bot and webhook are running!")
-
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=PORT)
+    asyncio.run(main())
