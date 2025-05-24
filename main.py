@@ -1,134 +1,123 @@
-import asyncio
 import logging
-import os
-import json
+import asyncio
 import httpx
-from aiohttp import web
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler,
-    ContextTypes, filters
+    ApplicationBuilder, CommandHandler,
+    MessageHandler, ContextTypes, filters
 )
 
-# --- Configuration ---
+import os
+from aiohttp import web
+
+# Telegram credentials
 BOT_TOKEN = "7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0"
 CHAT_ID = "7559598079"
-WEBHOOK_URL = "https://price-alert-roro.onrender.com"
+WEBHOOK_URL = "https://price-alert-roro.onrender.com/webhook"
 
-# --- Globals ---
-user_state = {}  # Tracks user input states
-alerts = {}      # Format: {'BTCUSDT': [price1, price2], ...}
+# Globals
+user_states = {}
+alerts = {}
+valid_tickers = set()
 
-# --- Logging ---
+# Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Telegram Handlers ---
+# Get list of Binance Perpetual Futures tickers
+async def fetch_binance_futures_tickers():
+    url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url)
+        symbols = r.json()["symbols"]
+        return {s["symbol"] for s in symbols if s["contractType"] == "PERPETUAL"}
 
+# Handle /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Send me a Binance Futures ticker (e.g. BTCUSDT).")
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="Hi! Send me a Binance Futures ticker like BTCUSDT.")
 
+# Handle text messages (tickers and prices)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    text = update.message.text.strip().upper()
+    text = update.message.text.upper().strip()
 
-    # User is setting price
-    if user_state.get(user_id) == "awaiting_price":
-        ticker = context.user_data["ticker"]
+    # If waiting for price
+    if user_id in user_states:
+        ticker = user_states[user_id]
         try:
             price = float(text)
-            alerts.setdefault(ticker, []).append(price)
-            await update.message.reply_text(f"✅ Alert set for {ticker} at {price}.")
+            alerts[(user_id, ticker)] = price
+            await context.bot.send_message(chat_id=user_id, text=f"✅ Alert set for {ticker} at {price}")
+            del user_states[user_id]
         except ValueError:
-            await update.message.reply_text("❌ Please enter a valid number.")
-        user_state[user_id] = None
+            await context.bot.send_message(chat_id=user_id, text="Please enter a valid number as price.")
         return
 
-    # User sent a ticker
-    symbol_info = await fetch_binance_symbol_info(text)
-    if symbol_info:
-        context.user_data["ticker"] = text
-        user_state[user_id] = "awaiting_price"
-        await update.message.reply_text(f"📈 {text} is a valid Binance Futures symbol. Send target price:")
+    # If expecting ticker
+    if text in valid_tickers:
+        user_states[user_id] = text
+        await context.bot.send_message(chat_id=user_id, text=f"🪙 {text} found. Now send me the price to alert at.")
     else:
-        await update.message.reply_text("❌ Not a valid Binance Futures ticker. Try again.")
+        await context.bot.send_message(chat_id=user_id, text="❌ Not a valid Binance PERPETUAL Futures symbol. Please try again.")
 
-# --- Price Checker ---
-
-async def fetch_binance_symbol_info(symbol):
-    async with httpx.AsyncClient() as client:
-        url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
-        try:
-            resp = await client.get(url, timeout=10)
-            data = resp.json()
-            symbols = [s["symbol"] for s in data["symbols"]]
-            return symbol if symbol in symbols else None
-        except Exception as e:
-            logger.error(f"Exchange info fetch failed: {e}")
-            return None
-
-async def fetch_price(symbol):
-    async with httpx.AsyncClient() as client:
-        url = f"https://fapi.binance.com/fapi/v1/ticker/price?symbol={symbol}"
-        try:
-            resp = await client.get(url, timeout=10)
-            data = resp.json()
-            return float(data["price"])
-        except Exception as e:
-            logger.error(f"Price fetch failed for {symbol}: {e}")
-            return None
-
+# Price monitor
 async def monitor_prices(application):
+    url = "https://fapi.binance.com/fapi/v1/ticker/price"
     while True:
         try:
-            for symbol, targets in alerts.items():
-                current_price = await fetch_price(symbol)
-                if current_price is None:
-                    continue
-                triggered = [p for p in targets if abs(current_price - p) / p < 0.001]
-                for price in triggered:
-                    await application.bot.send_message(
-                        chat_id=CHAT_ID,
-                        text=f"🚨 {symbol} has reached target price: {price} (Current: {current_price})"
-                    )
-                    alerts[symbol].remove(price)
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+                prices = {x["symbol"]: float(x["price"]) for x in response.json()}
+
+                to_remove = []
+                for (user_id, ticker), alert_price in alerts.items():
+                    current_price = prices.get(ticker)
+                    if current_price and current_price >= alert_price:
+                        await application.bot.send_message(chat_id=user_id, text=f"🚨 {ticker} hit your alert price: {alert_price}")
+                        to_remove.append((user_id, ticker))
+
+                for key in to_remove:
+                    del alerts[key]
+
         except Exception as e:
-            logger.error(f"Error in monitor_prices: {e}")
-        await asyncio.sleep(15)
+            logger.error(f"Price monitor error: {e}")
+        await asyncio.sleep(10)
 
-# --- Webhook Setup ---
-
+# Webhook handler
 async def handle_webhook(request):
     data = await request.json()
     update = Update.de_json(data, app.bot)
-    await app.process_update(update)
-    return web.Response(text="OK")
+    await app.update_queue.put(update)
+    return web.Response()
 
+# Main setup
 async def main():
+    global valid_tickers
+    valid_tickers = await fetch_binance_futures_tickers()
+
     global app
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
-    await app.initialize()
-    await app.bot.delete_webhook()
-    await app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-    await app.start()
+    asyncio.create_task(monitor_prices(app))
 
-    # Webhook server
-    aio_app = web.Application()
-    aio_app.router.add_post("/webhook", handle_webhook)
-    runner = web.AppRunner(aio_app)
+    # Webhook setup
+    async with httpx.AsyncClient() as client:
+        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook")
+        await client.post(f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}")
+
+    # Webhook app server
+    webhook_app = web.Application()
+    webhook_app.router.add_post("/webhook", handle_webhook)
+    runner = web.AppRunner(webhook_app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 10000)
+    site = web.TCPSite(runner, "0.0.0.0", int(os.environ.get("PORT", 10000)))
+    logger.info("🌐 Webhook running")
     await site.start()
 
-    logger.info("🌐 Webhook running")
-
-    # Start price monitor
-    asyncio.create_task(monitor_prices(app))
-    await app.updater.start_polling()  # optional fallback
-    await app.updater.idle()
+    await app.run_polling()  # fallback for local testing
 
 if __name__ == "__main__":
     asyncio.run(main())
