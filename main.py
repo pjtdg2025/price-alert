@@ -6,8 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from fastapi import FastAPI, Request
 import uvicorn
 
-BOT_TOKEN = "7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0"
-CHAT_ID = 7559598079
+BOT_TOKEN = "7602575751:AAFLeulkFLCz5uhh6oSk39Er6Fr6Frj9yyjts0"
 WEBHOOK_URL = "https://price-alert-roro.onrender.com/webhook"
 PORT = 10000
 
@@ -17,7 +16,7 @@ user_alerts = {}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Use official Binance Futures API with User-Agent header
+# Fetch Binance Futures perpetual contract tickers with User-Agent header
 async def fetch_binance_futures_tickers():
     url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
     headers = {
@@ -27,7 +26,6 @@ async def fetch_binance_futures_tickers():
         r = await client.get(url, headers=headers)
         r.raise_for_status()
         data = r.json()
-        # Filter only perpetual contracts
         return {item["symbol"] for item in data["symbols"] if item["contractType"] == "PERPETUAL"}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -40,7 +38,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_states:
         user_states[user_id] = {}
 
-    # If user is setting price for a ticker
     if user_states[user_id].get("awaiting_price_for"):
         ticker = user_states[user_id].pop("awaiting_price_for")
         try:
