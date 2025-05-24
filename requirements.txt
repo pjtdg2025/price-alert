@@ -1,4 +1,3 @@
 fastapi
 uvicorn
-httpx
-python-telegram-bot
+python-telegram-bot==20.3
