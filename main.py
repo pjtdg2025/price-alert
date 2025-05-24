@@ -2,11 +2,12 @@ import logging
 import httpx
 import asyncio
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, Defaults
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from fastapi import FastAPI, Request
+from telegram.ext import Defaults
 import uvicorn
 
-BOT_TOKEN = "7602575751:AAFLeulkFLCz5uhh6oSk39Er6Fr6Frj9yyjts0"
+BOT_TOKEN = "7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0"
 WEBHOOK_URL = "https://price-alert-roro.onrender.com/webhook"
 PORT = 10000
 
@@ -16,17 +17,13 @@ user_alerts = {}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Fetch Binance Futures perpetual contract tickers with User-Agent header
+# Static fallback list of popular Binance Futures tickers
 async def fetch_binance_futures_tickers():
-    url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
-    headers = {
-        "User-Agent": "Mozilla/5.0"
+    return {
+        "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT",
+        "SOLUSDT", "DOGEUSDT", "DOTUSDT", "LTCUSDT", "TRXUSDT",
+        "AVAXUSDT", "MATICUSDT", "LINKUSDT", "UNIUSDT", "BCHUSDT"
     }
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url, headers=headers)
-        r.raise_for_status()
-        data = r.json()
-        return {item["symbol"] for item in data["symbols"] if item["contractType"] == "PERPETUAL"}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Send me the Binance Futures ticker (e.g., BTCUSDT)")
@@ -79,7 +76,7 @@ app = FastAPI()
 @app.post("/webhook")
 async def telegram_webhook(req: Request):
     data = await req.json()
-    update = Update.de_json(data, context.bot)
+    update = Update.de_json(data, application.bot)
     await application.update_queue.put(update)
     return "ok"
 
@@ -109,8 +106,11 @@ async def main():
     logger.info("🌐 Webhook running")
     await application.initialize()
     await application.start()
-    await application.updater.start_polling()
-    await application.updater.idle()
+    # Don't start polling when using webhook
+    # await application.updater.start_polling()
+    # await application.updater.idle()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import uvicorn
+    # Run FastAPI server with uvicorn on specified port
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
