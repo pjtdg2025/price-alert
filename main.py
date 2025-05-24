@@ -1,10 +1,9 @@
 import logging
 import httpx
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, Defaults
 from fastapi import FastAPI, Request
-from telegram.ext import Defaults
 import uvicorn
 
 BOT_TOKEN = "7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0"
@@ -18,14 +17,18 @@ user_alerts = {}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Use a proxy API to avoid Binance API blocks
+# Use official Binance Futures API with User-Agent header
 async def fetch_binance_futures_tickers():
-    url = "https://api.coinhall.org/v1/binance/futures/symbols"
+    url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
     async with httpx.AsyncClient() as client:
-        r = await client.get(url)
+        r = await client.get(url, headers=headers)
         r.raise_for_status()
         data = r.json()
-        return {item["symbol"] for item in data["data"]}
+        # Filter only perpetual contracts
+        return {item["symbol"] for item in data["symbols"] if item["contractType"] == "PERPETUAL"}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Send me the Binance Futures ticker (e.g., BTCUSDT)")
