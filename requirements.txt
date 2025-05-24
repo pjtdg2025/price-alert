@@ -3,3 +3,5 @@ aiohttp==3.9.3
 httpx==0.25.2
 fastapi
 uvicorn
+pip install fastapi uvicorn httpx python-telegram-bot
+
