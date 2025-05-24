@@ -1,9 +1,8 @@
 from fastapi import FastAPI, Request
 from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 import logging
-import os
 
 # Enable logging for debugging
 logging.basicConfig(
@@ -11,7 +10,8 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # or hardcode your token here
+# Hardcoded Telegram bot token
+TOKEN = "7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0"
 
 app = FastAPI()
 
@@ -29,7 +29,6 @@ async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Add handler for messages
 telegram_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))
 
-
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     data = await request.json()
@@ -38,10 +37,9 @@ async def telegram_webhook(request: Request):
     await telegram_app.process_update(update)    # Process update immediately
     return {"ok": True}
 
-
 @app.get("/")
 async def root():
     return {"message": "Bot is running"}
 
-
-# To run with: uvicorn main:app --host 0.0.0.0 --port 8000
+# Run with:
+# uvicorn main:app --host 0.0.0.0 --port 8000
