@@ -1,10 +1,16 @@
 import logging
-import httpx
 import asyncio
+import httpx
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+    Defaults,
+)
 from fastapi import FastAPI, Request
-from telegram.ext import Defaults
 import uvicorn
 
 BOT_TOKEN = "7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0"
@@ -18,11 +24,14 @@ user_alerts = {}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Static hardcoded Binance Futures tickers to avoid API geo-blocking issues
+# Static ticker list to avoid geo-block or API issues
 async def fetch_binance_futures_tickers():
+    # A fixed sample set of popular Binance Futures tickers (uppercase)
     return {
-        "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "SOLUSDT",
-        "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT"
+        "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT",
+        "ADAUSDT", "SOLUSDT", "DOGEUSDT", "MATICUSDT",
+        "DOTUSDT", "LTCUSDT", "TRXUSDT", "AVAXUSDT",
+        "LINKUSDT", "ATOMUSDT", "BCHUSDT", "ALGOUSDT"
     }
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -65,7 +74,10 @@ async def check_alerts(context: ContextTypes.DEFAULT_TYPE):
             for ticker, target_price in alerts.items():
                 current_price = prices.get(ticker)
                 if current_price is not None and current_price >= target_price:
-                    await context.bot.send_message(chat_id=user_id, text=f"🚨 {ticker} reached {current_price} (target: {target_price})")
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=f"🚨 {ticker} reached {current_price} (target: {target_price})"
+                    )
                     to_remove.append(ticker)
             for ticker in to_remove:
                 del user_alerts[user_id][ticker]
@@ -73,6 +85,9 @@ async def check_alerts(context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error checking alerts: {e}")
 
 app = FastAPI()
+
+# Global Application instance will be assigned in main()
+application = None
 
 @app.post("/webhook")
 async def telegram_webhook(req: Request):
@@ -91,7 +106,12 @@ async def main():
     valid_tickers = await fetch_binance_futures_tickers()
 
     defaults = Defaults(parse_mode="HTML")
-    application = Application.builder().token(BOT_TOKEN).defaults(defaults).build()
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .defaults(defaults)
+        .build()
+    )
 
     application.bot_data["valid_tickers"] = valid_tickers
 
@@ -105,8 +125,14 @@ async def main():
     await application.bot.set_webhook(url=WEBHOOK_URL)
 
     logger.info("🌐 Webhook running")
+
     await application.initialize()
     await application.start()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # For local testing, run uvicorn server directly
+    import sys
+    if "uvicorn" in sys.argv[0]:
+        uvicorn.run("main:app", host="0.0.0.0", port=PORT, log_level="info")
+    else:
+        asyncio.run(main())
