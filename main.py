@@ -1,14 +1,16 @@
 import logging
 import httpx
+import asyncio
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from fastapi import FastAPI, Request
 from telegram.ext import Defaults
-import asyncio
+import uvicorn
 
 BOT_TOKEN = "7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0"
 CHAT_ID = 7559598079
 WEBHOOK_URL = "https://price-alert-roro.onrender.com/webhook"
+PORT = 10000
 
 user_states = {}
 user_alerts = {}
@@ -16,15 +18,14 @@ user_alerts = {}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-application = None  # Global reference
-
+# Use Binance official API to avoid proxy issues
 async def fetch_binance_futures_tickers():
-    url = "https://api.coinhall.org/v1/binance/futures/symbols"
+    url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
     async with httpx.AsyncClient() as client:
         r = await client.get(url)
         r.raise_for_status()
         data = r.json()
-        return {item["symbol"] for item in data["data"]}
+        return {item["symbol"] for item in data["symbols"]}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Send me the Binance Futures ticker (e.g., BTCUSDT)")
@@ -74,13 +75,25 @@ async def check_alerts(context: ContextTypes.DEFAULT_TYPE):
 
 app = FastAPI()
 
-@app.on_event("startup")
-async def startup_event():
+@app.post("/webhook")
+async def telegram_webhook(req: Request):
+    data = await req.json()
+    update = Update.de_json(data, application.bot)
+    await application.update_queue.put(update)
+    return "ok"
+
+@app.get("/")
+async def root():
+    return {"message": "Bot is running"}
+
+async def main():
     global application
+
     valid_tickers = await fetch_binance_futures_tickers()
 
     defaults = Defaults(parse_mode="HTML")
     application = Application.builder().token(BOT_TOKEN).defaults(defaults).build()
+
     application.bot_data["valid_tickers"] = valid_tickers
 
     application.add_handler(CommandHandler("start", start))
@@ -89,17 +102,12 @@ async def startup_event():
     job_queue = application.job_queue
     job_queue.run_repeating(check_alerts, interval=60, first=10)
 
-    await application.initialize()
-    await application.start()
+    await application.bot.delete_webhook()
     await application.bot.set_webhook(url=WEBHOOK_URL)
 
-@app.post("/webhook")
-async def telegram_webhook(req: Request):
-    data = await req.json()
-    update = Update.de_json(data, application.bot)
-    await application.process_update(update)
-    return {"status": "ok"}
+    logger.info("🌐 Webhook running")
+    await application.initialize()
+    await application.start()
 
-@app.get("/")
-async def root():
-    return {"message": "Bot is running"}
+if __name__ == "__main__":
+    asyncio.run(main())
