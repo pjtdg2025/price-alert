@@ -1,4 +1,4 @@
-fastapi
-uvicorn
-httpx
-python-telegram-bot==20.3
+fastapi==0.95.2
+uvicorn[standard]==0.22.0
+python-telegram-bot[asyncio]==20.3
+httpx==0.24.1
