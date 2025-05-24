@@ -2,9 +2,10 @@ import logging
 import httpx
 import asyncio
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, filters, ContextTypes, Defaults
+)
 from fastapi import FastAPI, Request
-from telegram.ext import Defaults
 import uvicorn
 
 BOT_TOKEN = "7602575751:AAFLeulkFLCz5uhh6oSk39Er6Frj9yyjts0"
@@ -18,7 +19,10 @@ user_alerts = {}
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Use Binance official API to avoid proxy issues
+app = FastAPI()
+application = None  # This will be initialized in startup
+
+# ✅ Use Binance official endpoint
 async def fetch_binance_futures_tickers():
     url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
     async with httpx.AsyncClient() as client:
@@ -73,22 +77,20 @@ async def check_alerts(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error checking alerts: {e}")
 
-app = FastAPI()
-
 @app.post("/webhook")
 async def telegram_webhook(req: Request):
     data = await req.json()
-    update = Update.de_json(data, application.bot)
-    await application.update_queue.put(update)
+    update = Update.de_json(data, bot=app.state.application.bot)
+    await app.state.application.update_queue.put(update)
     return "ok"
 
 @app.get("/")
 async def root():
     return {"message": "Bot is running"}
 
-async def main():
+@app.on_event("startup")
+async def startup_event():
     global application
-
     valid_tickers = await fetch_binance_futures_tickers()
 
     defaults = Defaults(parse_mode="HTML")
@@ -102,12 +104,13 @@ async def main():
     job_queue = application.job_queue
     job_queue.run_repeating(check_alerts, interval=60, first=10)
 
+    await application.initialize()
     await application.bot.delete_webhook()
     await application.bot.set_webhook(url=WEBHOOK_URL)
-
-    logger.info("🌐 Webhook running")
-    await application.initialize()
     await application.start()
 
+    app.state.application = application
+    logger.info("🌐 Bot and webhook are running!")
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    uvicorn.run("main:app", host="0.0.0.0", port=PORT)
